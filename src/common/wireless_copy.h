@@ -77,7 +77,7 @@
 /***************************** INCLUDES *****************************/
 
  /* jkm - replaced linux headers with C library headers, added typedefs */
-#if 0
+#ifdef ANDROID
 /* To minimise problems in user space, I might remove those headers
  * at some point. Jean II */
 #include <linux/types.h>		/* for "caddr_t" et al		*/

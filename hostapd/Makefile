@@ -1,6 +1,11 @@
-ifndef CC
-CC=gcc
-endif
+
+CROSS_COMPILE=arm-none-linux-gnueabi-
+CC=$(CROSS_COMPILE)gcc
+
+HOSTAPD_LIB_CC=$(CROSS_COMPILE)ar
+HOSTAPD_LIB_PATH=libhostapd.a
+
+TI_HOSTAPD_LIB ?= y
 
 ifndef CFLAGS
 CFLAGS = -MMD -O2 -Wall -g
@@ -103,6 +108,17 @@ endif
 ifdef CONFIG_DRIVER_HOSTAP
 CFLAGS += -DCONFIG_DRIVER_HOSTAP
 OBJS += driver_hostap.o
+endif
+
+ifdef CONFIG_DRIVER_WILINK
+CFLAGS += -DCONFIG_DRIVER_WILINK \
+	-I /home/vishal/TI/pub_eclair/system/wlan/ti/wilink_6_2/stad/Export_Inc \
+	-I /home/vishal/TI/pub_eclair/system/wlan/ti/wilink_6_2/utils \
+	-I /home/vishal/TI/pub_eclair/system/wlan/ti/wilink_6_2/platforms/os/linux/inc
+
+CONFIG_L2_PACKET=y
+OBJS += regulatory.o
+OBJS += driver_wilink.o 
 endif
 
 ifdef CONFIG_DRIVER_WIRED
@@ -538,7 +554,14 @@ CFLAGS += -DCONFIG_NO_AES_DECRYPT
 CFLAGS += -DCONFIG_NO_AES_ENCRYPT_BLOCK
 endif
 
+
+ifeq ($(TI_HOSTAPD_LIB), y)
+ALL=hostapd hostapd_cli_lib
+CFLAGS += -DTI_HOSTAPD_CLI_LIB
+else
 ALL=hostapd hostapd_cli
+endif
+
 
 all: verify_config $(ALL)
 
@@ -555,11 +578,15 @@ install: all
 	for i in $(ALL); do cp $$i /usr/local/bin/$$i; done
 
 hostapd: $(OBJS)
-	$(CC) -o hostapd $(OBJS) $(LIBS)
+	$(CC) -o hostapd $(OBJS) --static $(LIBS)
 
 OBJS_c = hostapd_cli.o ../src/common/wpa_ctrl.o ../src/utils/os_$(CONFIG_OS).o
 hostapd_cli: $(OBJS_c)
-	$(CC) -o hostapd_cli $(OBJS_c)
+	$(CC) -o hostapd_cli --static $(OBJS_c)
+
+hostapd_cli_lib: $(OBJS_c)
+	$(HOSTAPD_LIB_CC) rcs $(HOSTAPD_LIB_PATH) $(OBJS_c)
+
 
 NOBJS = nt_password_hash.o ../src/crypto/ms_funcs.o ../src/crypto/sha1.o ../src/crypto/rc4.o ../src/crypto/md5.o
 NOBJS += ../src/crypto/crypto_openssl.o ../src/utils/os_$(CONFIG_OS).o

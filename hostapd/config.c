@@ -28,6 +28,12 @@
 #include "uuid.h"
 #include "eap_common/eap_wsc_common.h"
 
+#ifndef CONFIG_NO_TI
+#include "ieee802_11_auth.h"
+#include "common/ieee802_11_defs.h"
+#include "sta_info.h"
+#include "eloop.h"
+#endif
 
 #define MAX_STA_COUNT 2007
 
@@ -1387,6 +1393,204 @@ static int hostapd_config_ht_capab(struct hostapd_config *conf,
 	return 0;
 }
 #endif /* CONFIG_IEEE80211N */
+
+
+
+#ifndef CONFIG_NO_TI
+
+struct hapd_interfaces {
+	size_t count;
+	struct hostapd_iface **iface;
+};
+
+
+int hostapd_should_remove_station(struct hostapd_data *hapd,  const u8 *addr) {
+	wpa_printf(MSG_DEBUG, "HAPDTI %s: station - " MACSTR, __func__, MAC2STR(addr));
+	if (hostapd_maclist_found(hapd->conf->accept_mac,
+			hapd->conf->num_accept_mac, addr, NULL)) {
+		printf("choice 1\n");
+		return HOSTAPD_ACL_ACCEPT;
+	}
+
+	if (hostapd_maclist_found(hapd->conf->deny_mac,
+			hapd->conf->num_deny_mac, addr, NULL)) {
+		printf("choice 2\n");
+		return HOSTAPD_ACL_REJECT;
+	}
+
+	if (hapd->conf->macaddr_acl == ACCEPT_UNLESS_DENIED) {
+		printf("choice 3\n");
+		return HOSTAPD_ACL_ACCEPT;
+	}
+	if (hapd->conf->macaddr_acl == DENY_UNLESS_ACCEPTED) {
+		printf("choice 4\n");
+		return HOSTAPD_ACL_REJECT;
+	}
+
+	printf("choice 5\n");
+	return HOSTAPD_ACL_REJECT;
+}
+
+
+int hostapd_remove_invalid_station(struct hostapd_data *hapd,
+					       struct sta_info *sta,
+					       void *ctx)
+{
+	if (hostapd_should_remove_station(hapd, sta->addr) == HOSTAPD_ACL_REJECT) {
+		wpa_printf(MSG_DEBUG, "HAPDTI %s: removing sta " MACSTR " !!!\n",
+				__func__, MAC2STR(sta->addr));
+
+		hostapd_wpa_auth_disconnect(hapd, sta->addr, WLAN_REASON_UNSPECIFIED);
+
+		/*hostapd_sta_disassoc(
+					hapd, sta->addr,
+					WLAN_REASON_UNSPECIFIED);
+
+		sta->flags &= ~WLAN_STA_ASSOC;
+		ieee802_1x_notify_port_enabled(sta->eapol_sm, 0);
+
+		accounting_sta_stop(hapd, sta);
+		ieee802_1x_free_station(sta);
+		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
+		       HOSTAPD_LEVEL_INFO, "disassociated due to acl");
+		sta->timeout_next = STA_DEAUTH;
+
+		mlme_disassociate_indication(
+			hapd, sta, WLAN_REASON_UNSPECIFIED);
+
+		mlme_deauthenticate_indication(
+			hapd, sta,
+			WLAN_REASON_PREV_AUTH_NOT_VALID);
+
+		ap_free_sta(hapd, sta);*/
+	}
+
+	return 0;
+}
+
+
+void hostapd_remove_invalid_stations(struct hostapd_data *bss) {
+	if (!bss) {
+		wpa_printf(MSG_DEBUG, "HAPDTI: bss is NULL");
+		return;
+	}
+	wpa_printf(MSG_DEBUG, "HAPDTI %s: for %s", __func__, bss->conf->ssid.ssid);
+	ap_for_each_sta(bss, hostapd_remove_invalid_station, NULL);
+}
+
+
+int hostapd_load_acl(const char* fname, struct hostapd_bss_config *bss)
+{
+	FILE *f;
+	char buf[256], *pos;
+	int line = 0;
+
+	wpa_printf(MSG_DEBUG, "HAPDTI %s: %s", __func__, fname);
+
+	f = fopen(fname, "r");
+	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "Could not open configuration file '%s' "
+			   "for reading.", fname);
+		return -1;
+	}
+
+	while (fgets(buf, sizeof(buf), f)) {
+		// bss = conf->last_bss;   Idan
+		line++;
+
+		if (buf[0] == '#')
+			continue;
+		pos = buf;
+		while (*pos != '\0') {
+			if (*pos == '\n') {
+				*pos = '\0';
+				break;
+			}
+			pos++;
+		}
+		if (buf[0] == '\0')
+			continue;
+
+		pos = os_strchr(buf, '=');
+		if (pos == NULL) {
+			wpa_printf(MSG_ERROR, "Line %d: invalid line '%s'",
+				   line, buf);
+			continue;
+		}
+		*pos = '\0';
+		pos++;
+
+		if (os_strcmp(buf, "macaddr_acl") == 0) {
+			bss->macaddr_acl = atoi(pos);
+			if (bss->macaddr_acl != ACCEPT_UNLESS_DENIED &&
+					bss->macaddr_acl != DENY_UNLESS_ACCEPTED &&
+					bss->macaddr_acl != USE_EXTERNAL_RADIUS_AUTH) {
+				wpa_printf(MSG_ERROR, "Line %d: unknown "
+						"macaddr_acl %d",
+						line, bss->macaddr_acl);
+			}
+		} else if (os_strcmp(buf, "accept_mac_file") == 0) {
+			os_free(bss->accept_mac);
+			bss->accept_mac = NULL;
+			bss->num_accept_mac = 0;
+			if (hostapd_config_read_maclist(pos, &bss->accept_mac,
+					&bss->num_accept_mac))
+			{
+				wpa_printf(MSG_ERROR, "Line %d: Failed to "
+						"read accept_mac_file '%s'",
+						line, pos);
+			}
+			else {
+				wpa_printf(MSG_DEBUG, "HAPDTI %s: total of %d addresses in whitelist",
+						__func__, bss->num_accept_mac);
+			}
+		} else if (os_strcmp(buf, "deny_mac_file") == 0) {
+			os_free(bss->deny_mac);
+			bss->deny_mac = NULL;
+			bss->num_deny_mac = 0;
+			if (hostapd_config_read_maclist(pos, &bss->deny_mac,
+					&bss->num_deny_mac)) {
+				wpa_printf(MSG_ERROR, "Line %d: Failed to "
+						"read deny_mac_file '%s'",
+						line, pos);
+			}
+			else {
+				wpa_printf(MSG_DEBUG, "HAPDTI %s: total of %d addresses in blacklist",
+						__func__, bss->num_deny_mac);
+			}
+		}
+
+	}
+
+	fclose(f);
+
+	return 0;
+}
+
+
+int hostapd_reload_acl() {
+	struct hapd_interfaces *hapds = eloop_get_user_data();
+	int i, j;
+
+	wpa_printf(MSG_DEBUG, "HAPDTI %s", __func__);
+
+	for (i = 0; i < hapds->count; i++) {
+		for (j = 0; j < hapds->iface[i]->num_bss; j++) {
+			if (hostapd_load_acl(hapds->iface[i]->config_fname,
+					hapds->iface[i]->bss[j]->conf) < 0) {
+				wpa_printf(MSG_WARNING, "Failed to read new "
+						"configuration file - continuing with "
+						"old.");
+				continue;
+			}
+			hostapd_remove_invalid_stations(hapds->iface[i]->bss[j]);
+		}
+	}
+
+	return 0;
+}
+
+#endif
 
 
 /**

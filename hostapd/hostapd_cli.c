@@ -18,6 +18,7 @@
 #include "wpa_ctrl.h"
 #include "common.h"
 #include "version.h"
+#include "hostapd_cli.h"
 
 
 static const char *hostapd_cli_version =
@@ -94,12 +95,15 @@ static const char *commands_help =
 "   interface [ifname]   show interfaces/select interface\n"
 "   level <debug level>  change debug level\n"
 "   license              show full hostapd_cli license\n"
+"   reset				 reset the AP(and reload its config file)\n"
+"	stop				 stop the AP\n"
+"   start                start the AP\n" 
 "   quit                 exit hostapd_cli\n";
 
 static struct wpa_ctrl *ctrl_conn;
 static int hostapd_cli_quit = 0;
 static int hostapd_cli_attached = 0;
-static const char *ctrl_iface_dir = "/var/run/hostapd";
+static const char *ctrl_iface_dir = "/dev/socket";
 static char *ctrl_ifname = NULL;
 static int ping_interval = 5;
 
@@ -204,6 +208,14 @@ static int hostapd_cli_cmd_ping(struct wpa_ctrl *ctrl, int argc, char *argv[])
 {
 	return wpa_ctrl_command(ctrl, "PING");
 }
+
+
+#ifndef CONFIG_NO_TI
+static int hostapd_cli_cmd_reload_acl(struct wpa_ctrl *ctrl, int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "RELOAD_ACL");
+}
+#endif
 
 
 static int hostapd_cli_cmd_mib(struct wpa_ctrl *ctrl, int argc, char *argv[])
@@ -350,6 +362,29 @@ static int hostapd_cli_cmd_quit(struct wpa_ctrl *ctrl, int argc, char *argv[])
 	return 0;
 }
 
+static int hostapd_cli_cmd_reset(struct wpa_ctrl *ctrl, int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "RECONFIG");
+}
+
+static int hostapd_cli_cmd_stop(struct wpa_ctrl *ctrl, int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "STOP");
+}
+
+static int hostapd_cli_cmd_start(struct wpa_ctrl *ctrl, int argc, char *argv[])
+{
+	char cmd[256];
+	printf("argc=%d\n", argc);
+	if (argc != 1) {
+		printf("Invalid START command: needs one argument (config "
+		       "file name)\n");
+		return 0;
+	}
+	snprintf(cmd, sizeof(cmd), "START %s", argv[0]);
+
+	return wpa_ctrl_command(ctrl, cmd);
+}
 
 static int hostapd_cli_cmd_level(struct wpa_ctrl *ctrl, int argc, char *argv[])
 {
@@ -422,6 +457,9 @@ struct hostapd_cli_cmd {
 
 static struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	{ "ping", hostapd_cli_cmd_ping },
+#ifndef CONFIG_NO_TI
+	{ "reload_acl", hostapd_cli_cmd_reload_acl },
+#endif
 	{ "mib", hostapd_cli_cmd_mib },
 	{ "sta", hostapd_cli_cmd_sta },
 	{ "all_sta", hostapd_cli_cmd_all_sta },
@@ -438,6 +476,9 @@ static struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	{ "level", hostapd_cli_cmd_level },
 	{ "license", hostapd_cli_cmd_license },
 	{ "quit", hostapd_cli_cmd_quit },
+	{ "reset", hostapd_cli_cmd_reset},
+	{ "stop", hostapd_cli_cmd_stop},
+	{ "start", hostapd_cli_cmd_start},
 	{ NULL, NULL }
 };
 
@@ -574,6 +615,98 @@ static void hostapd_cli_alarm(int sig)
 	alarm(ping_interval);
 }
 
+/* New methods to be used by driver wlan_cu application (CLI) */
+
+
+void HostapdCLI_PrintCommands()
+{
+    int i =0 ;
+
+    for (i = 0 ;i < HOSTAPD_CLI_CMD_LAST ; i++)
+    {
+        printf("%d. %s => %s",i+1 , tCmdsNames[i].cmdName, tCmdsNames[i].cmdDescription);
+    }
+}
+
+int HostapdCLI_RunCommand(const char *ctrl_interface, THostapdCLICmd *pCmd)
+{
+    int     argc = 1, i=0 ;
+    char*   argv[MAX_PARAMS_IN_CMD];
+
+    ctrl_ifname = strdup(ctrl_interface);
+
+    printf(" ctrl_ifname = %s. cmd = %d \n", ctrl_ifname, pCmd->eCmdType);
+    ctrl_conn = hostapd_cli_open_connection(ctrl_ifname);
+
+    if (ctrl_conn)
+    {
+         printf("\n Connection with Hostapd established.\n");
+    }
+    else
+    {
+        perror("\n Error! Failed to connect to hostapd \n");
+        return -1;
+    }
+
+    argv[0] = malloc(MAX_CMD_NAME_SIZE);
+    memcpy(argv[0], tCmdsNames[pCmd->eCmdType].cmdName , MAX_CMD_NAME_SIZE);
+
+	signal(SIGINT, hostapd_cli_terminate);
+	signal(SIGTERM, hostapd_cli_terminate);
+	signal(SIGALRM, hostapd_cli_alarm);
+
+    switch (pCmd->eCmdType)
+    {
+#ifndef CONFIG_NO_TI
+    case HOSTAPD_CLI_CMD_RELOAD_ACL:
+#endif
+    case HOSTAPD_CLI_CMD_PING:
+    case HOSTAPD_CLI_CMD_MIB:
+    case HOSTAPD_CLI_CMD_ALL_STA:
+	case HOSTAPD_CLI_CMD_WPS_PBC:
+	case HOSTAPD_CLI_CMD_RESET:
+	case HOSTAPD_CLI_CMD_STOP:
+        break;
+	case HOSTAPD_CLI_CMD_START:
+		argv[1] = malloc(MAX_FILENAME_SIZE);
+		memcpy(argv[1], pCmd->u.tCmdStart.config_fname , MAX_FILENAME_SIZE);
+		argc = 2;
+        break;
+    case HOSTAPD_CLI_CMD_STA:
+    case HOSTAPD_CLI_CMD_NEW_STA:
+	case HOSTAPD_CLI_CMD_SA_QUERY:
+
+       argv[1] = malloc(MAX_ADDRESS_SIZE);
+       memcpy(argv[1], pCmd->u.tCmdSta.address , MAX_ADDRESS_SIZE);
+       argc = 2;
+       break;
+    case HOSTAPD_CLI_CMD_WPS_PIN:
+        argv[1] = malloc(MAX_PIN_SIZE);
+        memcpy(argv[1], pCmd->u.tCmdWPSPin.pin , MAX_PIN_SIZE);
+        argv[2] = malloc(MAX_ADDRESS_SIZE);
+        memcpy(argv[2], pCmd->u.tCmdWPSPin.uuid , MAX_UUID_SIZE);
+        argc = 3;
+        break;
+    default:
+        printf("Error!, Command number %d is not legal!!!", pCmd->eCmdType);
+    }
+
+    printf("\n Sending Command: name=%s, argc=%d \n" ,argv[0], argc);
+	wpa_request(ctrl_conn, argc, &argv[0]);
+
+	free(ctrl_ifname);
+
+    for (i = 0 ; i < argc ; i++)
+    {
+        free(argv[i]);
+    }
+	hostapd_cli_close_connection();
+
+	return 0;
+}
+
+
+#ifndef TI_HOSTAPD_CLI_LIB
 
 int main(int argc, char *argv[])
 {
@@ -671,3 +804,5 @@ int main(int argc, char *argv[])
 	hostapd_cli_close_connection();
 	return 0;
 }
+
+#endif

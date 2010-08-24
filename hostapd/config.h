@@ -412,4 +412,8 @@ const struct hostapd_eap_user *
 hostapd_get_eap_user(const struct hostapd_bss_config *conf, const u8 *identity,
 		     size_t identity_len, int phase2);
 
+#ifndef CONFIG_NO_TI
+int hostapd_reload_acl();
+#endif
+
 #endif /* CONFIG_H */

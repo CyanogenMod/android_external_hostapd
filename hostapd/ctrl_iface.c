@@ -260,7 +260,6 @@ static int hostapd_ctrl_iface_wps_pin(struct hostapd_data *hapd, char *txt)
 }
 #endif /* CONFIG_WPS */
 
-
 static void hostapd_ctrl_iface_receive(int sock, void *eloop_ctx,
 				       void *sock_ctx)
 {
@@ -357,6 +356,20 @@ static void hostapd_ctrl_iface_receive(int sock, void *eloop_ctx,
 		if (hostapd_wps_button_pushed(hapd))
 			reply_len = -1;
 #endif /* CONFIG_WPS */
+#ifndef CONFIG_NO_TI
+	} else if (os_strncmp(buf, "RELOAD_ACL", 12) == 0) {
+		if (hostapd_reload_acl())
+			reply_len = -1;
+#endif
+	} else if (os_strcmp(buf, "RECONFIG") == 0) {
+		if (hostapd_reconfig_iface(hapd->iface))
+			reply_len = -1;
+	} else if (os_strcmp(buf, "STOP") == 0) {
+		if (hostapd_stop_iface_driver(hapd->iface))
+			reply_len = -1;
+	} else if (os_strncmp(buf, "START ", 6) == 0) {
+		if (hostapd_start_iface(hapd->iface, buf + 6))
+			reply_len = -1;
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

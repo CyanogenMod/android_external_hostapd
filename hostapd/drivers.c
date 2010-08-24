@@ -33,6 +33,9 @@ extern struct wpa_driver_ops wpa_driver_atheros_ops; /* driver_atheros.c */
 #ifdef CONFIG_DRIVER_BSD
 extern struct wpa_driver_ops wpa_driver_bsd_ops; /* driver_bsd.c */
 #endif /* CONFIG_DRIVER_BSD */
+#ifdef CONFIG_DRIVER_WILINK
+extern struct wpa_driver_ops wpa_driver_wilink_ops; /* driver_wilink.c */
+#endif /* CONFIG_DRIVER_WILINK */
 #ifdef CONFIG_DRIVER_WIRED
 extern struct wpa_driver_ops wpa_driver_wired_ops; /* driver_wired.c */
 #endif /* CONFIG_DRIVER_WIRED */
@@ -64,6 +67,9 @@ struct wpa_driver_ops *hostapd_drivers[] =
 #ifdef CONFIG_DRIVER_BSD
 	&wpa_driver_bsd_ops,
 #endif /* CONFIG_DRIVER_BSD */
+#ifdef CONFIG_DRIVER_WILINK
+	&wpa_driver_wilink_ops,
+#endif /* CONFIG_DRIVER_WILINK */
 #ifdef CONFIG_DRIVER_WIRED
 	&wpa_driver_wired_ops,
 #endif /* CONFIG_DRIVER_WIRED */

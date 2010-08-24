@@ -61,6 +61,7 @@ struct hapd_interfaces {
 
 unsigned char rfc1042_header[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 
+static int debug;
 
 extern int wpa_debug_level;
 extern int wpa_debug_show_keys;
@@ -384,7 +385,6 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 
 	return 0;
 }
-
 
 #ifndef CONFIG_NATIVE_WINDOWS
 /**
@@ -710,7 +710,6 @@ static void hostapd_cleanup_iface(struct hostapd_iface *iface)
 
 	os_free(iface->config_fname);
 	os_free(iface->bss);
-	os_free(iface);
 }
 
 
@@ -784,7 +783,7 @@ static void hostapd_wpa_auth_logger(void *ctx, const u8 *addr,
 }
 
 
-static void hostapd_wpa_auth_disconnect(void *ctx, const u8 *addr,
+void hostapd_wpa_auth_disconnect(void *ctx, const u8 *addr,
 					u16 reason)
 {
 	struct hostapd_data *hapd = ctx;
@@ -1799,24 +1798,22 @@ fail:
 
 
 /**
- * hostapd_init - Allocate and initialize per-interface data
+ * hostapd_init - Initialize per-interface data
+ * @hapd_iface: Pointer to the interface structure
  * @config_file: Path to the configuration file
- * Returns: Pointer to the allocated interface data or %NULL on failure
+ * Returns: 0 or error status on failure
  *
  * This function is used to allocate main data structures for per-interface
  * data. The allocated data buffer will be freed by calling
  * hostapd_cleanup_iface().
  */
-static struct hostapd_iface * hostapd_init(const char *config_file)
+static int hostapd_init(struct hostapd_iface *hapd_iface, const char *config_file)
 {
-	struct hostapd_iface *hapd_iface = NULL;
 	struct hostapd_config *conf = NULL;
 	struct hostapd_data *hapd;
 	size_t i;
 
-	hapd_iface = os_zalloc(sizeof(*hapd_iface));
-	if (hapd_iface == NULL)
-		goto fail;
+	os_memset(hapd_iface, 0, sizeof(*hapd_iface));
 
 	hapd_iface->config_fname = os_strdup(config_file);
 	if (hapd_iface->config_fname == NULL)
@@ -1841,7 +1838,7 @@ static struct hostapd_iface * hostapd_init(const char *config_file)
 			goto fail;
 	}
 
-	return hapd_iface;
+	return 0;
 
 fail:
 	if (conf)
@@ -1853,11 +1850,178 @@ fail:
 				tls_deinit(hapd->ssl_ctx);
 		}
 
-		os_free(hapd_iface->config_fname);
-		os_free(hapd_iface->bss);
-		os_free(hapd_iface);
+		if (hapd_iface->config_fname) os_free(hapd_iface->config_fname);
+        if (hapd_iface->bss) os_free(hapd_iface->bss);
 	}
-	return NULL;
+	return -1;
+}
+
+/**
+ * hostapd_init_iface - Initialize and setup per-interface data
+ * @hapd_iface: Pointer to the interface structure
+ * @config_file: Path to the configuration file
+ * Returns: 0 or error status on failure
+ *
+ * This function is used to allocate main data structures for per-interface
+ * data and to setup the interface
+ */
+static int hostapd_init_iface(struct hostapd_iface *iface, const char *config_file)
+{
+	int ret, k;
+
+	wpa_printf(MSG_DEBUG, "**************%s**************", __func__);
+
+	ret = hostapd_init(iface, config_file);
+	if (ret)
+		return -1;
+
+	for (k = 0; k < debug; k++) {
+		if (iface->bss[0]->conf->logger_stdout_level > 0)
+			iface->bss[0]->conf->logger_stdout_level--;
+	}
+
+	ret = hostapd_setup_interface(iface);
+	if (ret)
+		return -1;
+
+	return 0;
+}
+
+
+/**
+ * hostapd_deinit_iface - Deinitialize and cleanup per-interface
+ * data
+ * @hapd_iface: Pointer to the interface structure
+ * Returns: none
+ */
+static void hostapd_deinit_iface(struct hostapd_iface *iface)
+{
+	int j;
+
+	wpa_printf(MSG_DEBUG, "**************%s**************", __func__);
+
+	if (!iface)
+		return;
+
+	hostapd_cleanup_iface_pre(iface);
+	for (j = 0; j < iface->num_bss; j++) {
+		struct hostapd_data *hapd = iface->bss[j];
+
+		hostapd_cleanup(hapd);
+		if (j == iface->num_bss - 1 && hapd->driver)
+			hostapd_driver_deinit(hapd);
+	}
+
+	for (j = 0; j < iface->num_bss; j++)
+		os_free(iface->bss[j]);
+
+	hostapd_cleanup_iface(iface);
+
+}
+
+/**
+ * hostapd_reset_iface - Reset interface data
+ * @hapd_iface: Pointer to the interface structure
+ * @config_fname: config file name
+ * @deauth_stas: if to send deauth brcst to connected stations
+ * Returns: 0 or error code on failure
+ */
+int hostapd_reset_iface(struct hostapd_iface *iface, const char *config_fname, int deauth_stas)
+{
+	int j, ret;
+
+	if (!iface)
+		return -1;
+
+	for (j = 0; j < iface->num_bss; j++) {
+		struct hostapd_data *hapd = iface->bss[j];
+        hostapd_free_stas(hapd);
+		if (deauth_stas){
+			hostapd_flush_old_stations(hapd);
+			/*Sleep in order to wait for DEAUTH frame to be transmitted*/
+            sleep(1);
+		}
+	}
+
+	hostapd_deinit_iface(iface);
+
+	ret = hostapd_init_iface(iface, config_fname);
+	if (ret)
+	{
+		wpa_printf(MSG_ERROR, "%s: Failed to initialize interface", __func__);
+        hostapd_deinit_iface(iface);
+        return -1;
+	}
+
+	return ret;
+}
+
+/**
+ * hostapd_reconfig_iface - Re-read config file and reload
+ * interface with new configuration
+ * @hapd_iface: Pointer to the interface structure
+ * Returns: 0 or error code on failure
+ */
+int hostapd_reconfig_iface(struct hostapd_iface *iface)
+{
+	char *config_fname;
+	int ret;
+
+	wpa_printf(MSG_DEBUG, "***********%s********", __func__);
+
+	/*save config file name before it is freed in deinit*/
+	config_fname = os_strdup(iface->config_fname);
+	if (!config_fname)
+		return -1;
+
+	ret = hostapd_reset_iface(iface, config_fname, 1/*send deauth*/);
+
+	os_free(config_fname);
+
+	return ret;
+}
+
+/**
+ * hostapd_start_iface - Restart the interface
+ * @hapd_iface: Pointer to the interface structure
+ * @config_fname: config file name
+ * Returns: 0 or error code on failure
+ */
+int hostapd_start_iface(struct hostapd_iface *iface, const char *config_fname)
+{
+	wpa_printf(MSG_DEBUG, "***********%s********", __func__);
+
+	return hostapd_reset_iface(iface, config_fname, 1/*send deauth*/);
+}
+
+/**
+ * hostapd_stop_iface - Stop the interface driver
+ * @hapd_iface: Pointer to the interface structure
+ * Returns: 0 or error code on failure
+ */
+int hostapd_stop_iface_driver(struct hostapd_iface *iface)
+{
+	int i;
+
+	wpa_printf(MSG_DEBUG, "***********%s********", __func__);
+
+	if (!iface)
+		return -1;
+
+	for (i = 0; i < iface->num_bss; i++)
+	{
+		struct hostapd_data *hapd = iface->bss[i];
+
+		hostapd_free_stas(hapd);
+		hostapd_flush_old_stations(hapd);
+		/*Sleep in order to wait for DEAUTH frame to be transmitted*/
+		sleep(1);
+		if ((i == iface->num_bss - 1) && (hapd->driver))
+			hostapd_driver_deinit(hapd);
+		hapd->driver = NULL;
+	}
+
+	return 0;
 }
 
 
@@ -1866,8 +2030,10 @@ int main(int argc, char *argv[])
 	struct hapd_interfaces interfaces;
 	int ret = 1, k;
 	size_t i, j;
-	int c, debug = 0, daemonize = 0, tnc = 0;
+	int c, daemonize = 0, tnc = 0;
 	const char *pid_file = NULL;
+
+	debug = 0;
 
 	hostapd_logger_register_cb(hostapd_logger_cb);
 
@@ -1939,19 +2105,15 @@ int main(int argc, char *argv[])
 	for (i = 0; i < interfaces.count; i++) {
 		wpa_printf(MSG_ERROR, "Configuration file: %s",
 			   argv[optind + i]);
-		interfaces.iface[i] = hostapd_init(argv[optind + i]);
+
+		interfaces.iface[i] = os_zalloc(sizeof(struct hostapd_iface));
 		if (!interfaces.iface[i])
 			goto out;
-		for (k = 0; k < debug; k++) {
-			if (interfaces.iface[i]->bss[0]->conf->
-			    logger_stdout_level > 0)
-				interfaces.iface[i]->bss[0]->conf->
-					logger_stdout_level--;
-		}
 
-		ret = hostapd_setup_interface(interfaces.iface[i]);
+		ret = hostapd_init_iface(interfaces.iface[i], argv[optind + i]);
 		if (ret)
 			goto out;
+
 
 		for (k = 0; k < (int) interfaces.iface[i]->num_bss; k++) {
 			if (interfaces.iface[i]->bss[0]->conf->tnc)
@@ -1992,20 +2154,9 @@ int main(int argc, char *argv[])
  out:
 	/* Deinitialize all interfaces */
 	for (i = 0; i < interfaces.count; i++) {
-		if (!interfaces.iface[i])
-			continue;
-		hostapd_cleanup_iface_pre(interfaces.iface[i]);
-		for (j = 0; j < interfaces.iface[i]->num_bss; j++) {
-			struct hostapd_data *hapd =
-				interfaces.iface[i]->bss[j];
-			hostapd_cleanup(hapd);
-			if (j == interfaces.iface[i]->num_bss - 1 &&
-			    hapd->driver)
-				hostapd_driver_deinit(hapd);
-		}
-		for (j = 0; j < interfaces.iface[i]->num_bss; j++)
-			os_free(interfaces.iface[i]->bss[j]);
-		hostapd_cleanup_iface(interfaces.iface[i]);
+		hostapd_deinit_iface(interfaces.iface[i]);
+		os_free(interfaces.iface[i]);
+
 	}
 	os_free(interfaces.iface);
 

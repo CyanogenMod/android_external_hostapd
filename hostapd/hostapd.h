@@ -234,5 +234,10 @@ struct hostapd_iface {
 void hostapd_new_assoc_sta(struct hostapd_data *hapd, struct sta_info *sta,
 			   int reassoc);
 int hostapd_reload_config(struct hostapd_iface *iface);
+void hostapd_wpa_auth_disconnect(void *ctx, const u8 *addr, u16 reason);
+int hostapd_reset_iface(struct hostapd_iface *iface, const char *config_fname, int deauth_stas);
+int hostapd_reconfig_iface(struct hostapd_iface *iface);
+int hostapd_stop_iface_driver(struct hostapd_iface *iface);
+int hostapd_start_iface(struct hostapd_iface *iface, const char *config_file);
 
 #endif /* HOSTAPD_H */
