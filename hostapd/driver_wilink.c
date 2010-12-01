@@ -143,7 +143,9 @@ static void wilink_rx_mgmt(void *ctx, const u8 *src_addr, const u8 *data, size_t
 	u16 fc, type, stype;
 	size_t data_len = len;
 	u8* buf;
-    struct sta_info *sta;
+	struct sta_info *sta;
+	struct hostapd_frame_info fi;
+
 
 	len -=  sizeof(TApFrameHeader);
 	buf = ((u8*) data) + sizeof(TApFrameHeader);
@@ -168,7 +170,9 @@ static void wilink_rx_mgmt(void *ctx, const u8 *src_addr, const u8 *data, size_t
 	switch (((TApFrameHeader*)data)->sCtrlHdr) { 
 	case AP_CTRL_HDR_RX:
 		wpa_printf(MSG_DEBUG, "HAPDTI %s: processing management frame", __func__);
-		ieee802_11_mgmt(hapd, buf, len, stype, NULL);
+		memset(&fi, 0, sizeof(struct hostapd_frame_info));
+		fi.phytype = 7;
+		ieee802_11_mgmt(hapd, buf, len, stype, &fi);
 		break;
     case AP_CTRL_HDR_TX_SUCCESS: 		/* successful TX Complete event */
         wpa_printf(MSG_DEBUG, "HAPDTI %s: GET TX SUCCSESS", __func__);
@@ -281,7 +285,7 @@ static void wilink_wireless_event_wireless_custom(struct wilink_driver_data *drv
 			/*save config file name before it is freed in deinit*/
 			config_fname = os_strdup(drv->hapd->iface->config_fname);
 			if (!config_fname)
-				return -1;
+				return ;
 			hostapd_reset_iface(drv->hapd->iface, config_fname, 0/*don't send deauth*/);
 			os_free(config_fname);
 		}
@@ -719,13 +723,13 @@ static int wilink_set_country(void *priv, const char *country)
 	struct wilink_driver_data *drv = priv;
 	int ret = 0;
 
-    if (country)
-    {
-        strcpy(drv->pRegDomain->cCountry, country);
-    }
-    /* build hw capability table */
-    ret = wilink_send_ti_private_cmd(drv,ROLE_AP_GET_HW, (char*)drv->pRegDomain, sizeof(*drv->pRegDomain));
-    regulatory_build_hw_capability(drv->pRegDomainHandle,drv->pRegDomain,drv->hapd->iconf->channel);
+	if (country)
+	{
+		strcpy(drv->pRegDomain->cCountry, country);
+	}
+	/* build hw capability table */
+	ret = wilink_send_ti_private_cmd(drv,ROLE_AP_GET_HW, (char*)drv->pRegDomain, sizeof(*drv->pRegDomain));
+	regulatory_build_hw_capability(drv->pRegDomainHandle,drv->pRegDomain,drv->hapd->iconf->channel,drv->hapd->iconf->hw_mode);
         
 	return ret;
 }
@@ -737,7 +741,7 @@ static int wilink_set_rts(void *priv, int rts)
 	TApGeneralParam GenStruct;
 	int ret = 0;
 
-    GenStruct.lValue = rts;
+	GenStruct.lValue = rts;
 	ret  = wilink_send_ti_private_cmd(drv,ROLE_AP_SET_RTS,(char*)&GenStruct,sizeof(GenStruct));
 	return ret;
 }
@@ -748,7 +752,7 @@ static int wilink_set_broadcast_ssid(void *priv, int value)
 	TApGeneralParam GenStruct;
 	int ret = 0;
 
-    GenStruct.lValue = (value == 1) ? AP_SSID_TYPE_HIDDEN : AP_SSID_TYPE_PUBLIC;
+	GenStruct.lValue = (value == 1) ? AP_SSID_TYPE_HIDDEN : AP_SSID_TYPE_PUBLIC;
 	ret  = wilink_send_ti_private_cmd(drv, ROLE_AP_SET_SSID_TYPE, (char*)&GenStruct,sizeof(GenStruct));
 	return ret;
 }
@@ -902,8 +906,9 @@ static int wilink_set_rate_sets(void *priv, int *supp_rates, int *basic_rates,
 	{
 		if (supp_rates != NULL)
 		{
-		  for (i=0; (i<AP_MAX_SUPPORT_RATE && supp_rates[i]>0) ;i++)
+		  for (i=0; (i<AP_MAX_SUPPORT_RATE) ;i++)
 		  {
+		    if (supp_rates[i]>0)        
 			 RateParams.aSupportedRates[i] = supp_rates[i];
 		  }
 		  RateParams.cSuppRateLen = i;
@@ -1151,21 +1156,70 @@ static int wilink_set_ssid(const char *ifname, void *priv, const u8 *buf,
 static struct hostapd_hw_modes *
  wilink_get_hw_feature_data(void *priv, u16 *num_modes, u16 *flags)
 {
-    struct wilink_driver_data *drv = priv;
+   struct wilink_driver_data *drv = priv;
+   TApGeneralParam GenStruct;
+   int i,j;
+    
+   /* Build hw capability table for default regulatory domain (all channels) if country code is not set */
+   wilink_send_ti_private_cmd(drv, ROLE_AP_GET_HW, (char*)drv->pRegDomain, sizeof(*drv->pRegDomain));
 
-   if (!(drv->pRegDomain->cCountry[0] || drv->pRegDomain->cCountry[1]))
-    {
-        /* Build hw capability table for default regulatory domain (all channels) if country code is not set */
-        wilink_send_ti_private_cmd(drv, ROLE_AP_GET_HW, (char*)drv->pRegDomain, sizeof(*drv->pRegDomain));
-        regulatory_build_hw_capability(drv->pRegDomainHandle,drv->pRegDomain,drv->hapd->iconf->channel);
-    }
+   if (!drv->hapd->iconf->ieee80211d)
+   {
+    memcpy(drv->pRegDomain->cCountry, "TI",2);
+    regulatory_build_hw_capability(drv->pRegDomainHandle,drv->pRegDomain,drv->hapd->iconf->channel,drv->hapd->iconf->hw_mode);
+    GenStruct.lValue = AP_MAX_TX_POWER ;
+   }
+   else
+   {
+     if (!(drv->pRegDomain->cCountry[0] || drv->pRegDomain->cCountry[1]))
+         regulatory_build_hw_capability(drv->pRegDomainHandle,drv->pRegDomain,drv->hapd->iconf->channel,drv->hapd->iconf->hw_mode);
+
+      for (i=0;i<drv->pRegDomainHandle->NumOfModes;i++)
+       for (j=0;j< drv->pRegDomainHandle->modes[i].num_channels;j++)
+        if (drv->pRegDomainHandle->modes[i].channels[j].chan == drv->hapd->iconf->channel)
+        {
+          GenStruct.lValue = drv->pRegDomainHandle->modes[i].channels[j].max_tx_power * 10;
+          break;
+        }
+   }
+  
+   wilink_send_ti_private_cmd(drv,ROLE_AP_SET_TX_POWER,(char*)&GenStruct,sizeof(TApGeneralParam));
+ 
+   *num_modes =  drv->pRegDomainHandle->NumOfModes;
+   *flags = 0;
     
-  *num_modes =  drv->pRegDomainHandle->NumOfModes;
-  *flags = 0;
-    
-  return drv->pRegDomainHandle->modes;
+   return drv->pRegDomainHandle->modes;
 }
 
+static int
+wilink_set_wps_beacon_ie(const char *ifname, void *priv, const u8 *ie,
+			  size_t len)
+{
+    return 0;
+}
+
+static int
+wilink_set_wps_probe_resp_ie(const char *ifname, void *priv, const u8 *ie,
+			      size_t len)
+{
+	TApWpsIe wpsParam;
+	struct wilink_driver_data *drv = priv;
+    int ret = 0;
+
+    if (len > AP_MAX_WPS_IE_LEN) {
+        wpa_printf(MSG_ERROR, "%s: len is too big", __func__);
+        return -1;
+    }
+
+    memcpy(wpsParam.cIe, ie, len);
+    wpsParam.iIeLen = len;
+
+    ret  = wilink_send_ti_private_cmd(drv,ROLE_AP_SET_PROBE_WPS_IE,(char *)&wpsParam,sizeof(wpsParam));
+
+    ieee802_11_set_beacon(drv->hapd);
+
+    return ret;
+}
 
 
 
@@ -1185,26 +1239,28 @@ const struct wpa_driver_ops wpa_driver_wilink_ops = {
 		
 		/* commands */
 		.set_privacy = wilink_set_privacy,
-	    .set_encryption = wilink_set_encryption,
+		.set_encryption = wilink_set_encryption,
 		.flush = wilink_flush,
 		.read_sta_data = wilink_read_sta_data,
 		.sta_set_flags = wilink_sta_set_flags,
 		.sta_remove = wilink_sta_remove,
 		.sta_add2 = wilink_sta_add2,
-	    .set_freq = wilink_set_channel,
+		.set_freq = wilink_set_channel,
 		.set_rts = wilink_set_rts,
 		.set_rate_sets = wilink_set_rate_sets,
 		.set_beacon = wilink_set_beacon,
-        .set_internal_bridge = wilink_set_internal_bridge,
+		.set_internal_bridge = wilink_set_internal_bridge,
 		.set_beacon_int = wilink_set_beacon_int,
 		.set_dtim_period = wilink_set_dtim_period,
-        .set_broadcast_ssid = wilink_set_broadcast_ssid,
+		.set_broadcast_ssid = wilink_set_broadcast_ssid,
 		.set_cts_protect = wilink_set_cts_protect,
 		.set_preamble = wilink_set_preamble,
 		.set_short_slot_time = wilink_set_short_slot_time,
 		.set_tx_queue_params = wilink_set_tx_queue_params,
-	    .set_country = wilink_set_country,
-        .commit = wilink_commit,
-        .set_ssid = wilink_set_ssid,
-        .get_hw_feature_data = wilink_get_hw_feature_data,
+		.set_country = wilink_set_country,
+		.commit = wilink_commit,
+		.set_ssid = wilink_set_ssid,
+		.get_hw_feature_data = wilink_get_hw_feature_data,
+		.set_wps_beacon_ie	= wilink_set_wps_beacon_ie,
+		.set_wps_probe_resp_ie	= wilink_set_wps_probe_resp_ie,
 };

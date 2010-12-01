@@ -89,7 +89,7 @@ static TCmdInfo tCmdsNames[HOSTAPD_CLI_CMD_LAST] =
     {"all_sta", "Get MIB variables for all stations\n"},                    /* HOSTAPD_CLI_CMD_ALL_STA */
     {"new_sta", "Add a new station (Param0: <addr>)\n"},                    /* HOSTAPD_CLI_CMD_NEW_STA */
     {"sa_query","Send SA Query to a station (Param: <addr>)\n"},            /* HOSTAPD_CLI_CMD_SA_QUERY */
-    {"wps_pin", "Add WPS Enrollee PIN (Param: <uuid> <pin>)\n"},            /* HOSTAPD_CLI_CMD_WPS_PIN */
+    {"wps_pin", "Add WPS Enrollee PIN (Param: <pin> <uuid>)\n"},            /* HOSTAPD_CLI_CMD_WPS_PIN */
     {"wps_pbc", "indicate button pushed to initiate PBC \n"},               /* HOSTAPD_CLI_CMD_WPS_PBC */
     {"reset",   "Reload config file and reset the AP\n"},	                /* HOSTAPD_CLI_CMD_RESET */
     {"stop",    "Stop the AP\n"},							                /* HOSTAPD_CLI_CMD_STOP */
@@ -113,7 +113,9 @@ typedef struct
 typedef struct
 {
     char uuid[MAX_UUID_SIZE];
+    unsigned short uuidLen;
     char pin[MAX_PIN_SIZE];
+    unsigned short pinLen;
 }TCmdWPSPin;
 
 

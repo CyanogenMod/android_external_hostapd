@@ -576,7 +576,7 @@ OBJS_c = \
 include $(CLEAR_VARS)
 LOCAL_MODULE := hostap
 LOCAL_MODULE_TAGS := debug
-LOCAL_SHARED_LIBRARIES := libc libcutils
+LOCAL_SHARED_LIBRARIES := libc libcutils libcrypto libssl
 #LOCAL_FORCE_STATIC_EXCUTABLE := true
 #LOCAL_STATIC_LIBRARIES := libc libcutils
 LOCAL_CFLAGS := $(AP_CFLAGS)

@@ -681,11 +681,18 @@ int HostapdCLI_RunCommand(const char *ctrl_interface, THostapdCLICmd *pCmd)
        argc = 2;
        break;
     case HOSTAPD_CLI_CMD_WPS_PIN:
-        argv[1] = malloc(MAX_PIN_SIZE);
-        memcpy(argv[1], pCmd->u.tCmdWPSPin.pin , MAX_PIN_SIZE);
-        argv[2] = malloc(MAX_ADDRESS_SIZE);
-        memcpy(argv[2], pCmd->u.tCmdWPSPin.uuid , MAX_UUID_SIZE);
+        {
+        char *temp ;
+        argv[1] = malloc(pCmd->u.tCmdWPSPin.uuidLen +1);
+        memcpy(argv[1], pCmd->u.tCmdWPSPin.uuid,pCmd->u.tCmdWPSPin.uuidLen);
+        temp =  argv[1] + pCmd->u.tCmdWPSPin.uuidLen;
+        *temp = '\0';
+        argv[2] = malloc(pCmd->u.tCmdWPSPin.pinLen+1);
+        memcpy(argv[2], pCmd->u.tCmdWPSPin.pin,pCmd->u.tCmdWPSPin.pinLen);
+        temp = argv[2] + pCmd->u.tCmdWPSPin.pinLen;
+        *temp = '\0';
         argc = 3;
+        }
         break;
     default:
         printf("Error!, Command number %d is not legal!!!", pCmd->eCmdType);

@@ -54,7 +54,7 @@ typedef struct
 
 RegDomainStruct_t *regulatory_create(void);
 
-void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo *pChanStruct,char current_channel);
+void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo *pChanStruct,char current_channel,hostapd_hw_mode hostapd_mode);
 
 struct hostapd_hw_modes *regulatory_get_hw_capability(unsigned short *num_modes, unsigned short *flags);
 

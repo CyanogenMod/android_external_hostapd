@@ -848,7 +848,7 @@ static void handle_assoc(struct hostapd_data *hapd,
 	}
 #ifdef CONFIG_WPS
 	sta->flags &= ~(WLAN_STA_WPS | WLAN_STA_MAYBE_WPS);
-	if (hapd->conf->wps_state && wpa_ie == NULL) {
+	if (hapd->conf->wps_state) {
 		if (elems.wps_ie) {
 			wpa_printf(MSG_DEBUG, "STA included WPS IE in "
 				   "(Re)Association Request - assume WPS is "

@@ -124,12 +124,12 @@ RegDomainInfo_t RegDomainTbl[4] = {
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}}},
                                   {{"JP"},
-                                  {{1,1,4,13,5000,{34,38,42,46,0,0,0,0,0,0,0,0,0,0,0}},
-                                  {2,6,3,13,5000,{8,12,16,0,0,0,0,0,0,0,0,0,0,0,0}},
-                                  {7,11,4,13,4000,{184,188,192,196,0,0,0,0,0,0,0,0,0,0,0}},
-                                  {30,30,13,13,2407,{1,2,3,4,5,6,7,8,9,10,11,12,13,0,0}},
-                                  {31,31,1,13,2414,{14,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
-                                  {32,32,4,13,5000,{52,56,60,64,0,0,0,0,0,0,0,0,0,0,0}},
+                                  {{1,1,4,23,5000,{34,38,42,46,0,0,0,0,0,0,0,0,0,0,0}},
+                                  {2,6,3,23,5000,{16,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},/* don't forget to add channel 8,12 for 11N*/
+                                  {7,11,4,23,4000,{184,188,192,196,0,0,0,0,0,0,0,0,0,0,0}},
+                                  {30,30,13,24,2407,{1,2,3,4,5,6,7,8,9,10,11,12,13,0,0}},
+                                  {31,31,1,24,2414,{14,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
+                                  {32,32,4,23,5000,{52,56,60,64,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
@@ -146,7 +146,7 @@ RegDomainInfo_t RegDomainTbl[4] = {
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}}},
                                   {{""},
-                                  {{100,100,11,13,2407,{1,2,3,4,5,6,7,8,9,10,11,12,13,0,0}},
+                                  {{100,100,11,13,2407,{1,2,3,4,5,6,7,8,9,10,11,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
                                   {0,0,0,0,0,{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}},
@@ -202,7 +202,7 @@ RegDomainStruct_t *regulatory_create(void)
 DESCRIPTION: builds regulatory domain table
 INPUT:      pChanStruct - pointer to channel info structure
 ************************************************************************/
-void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo *pChanStruct,char current_channel)
+void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo *pChanStruct,char current_channel,hostapd_hw_mode hostapd_mode)
 {
  int country;
  unsigned char MaxTxPower = pChanStruct->MaxtxPower/DBM_TO_TX_POWER_FACTOR;
@@ -223,7 +223,7 @@ void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo
   if (!strncmp(pChanStruct->cCountry,"TI",2))
      country  = REG_TI_INDEX;
   else
-   if (!strncmp(pChanStruct->cCountry,"",1))
+   if (!strncmp(pChanStruct->cCountry,"",2))
      country  = REG_ALL_INDEX;
   else
     country  = REG_EUROPE_INDEX;
@@ -243,6 +243,17 @@ void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo
             free(pChanInfo);
       break;
 
+ case DOT11_B_MODE:
+            pChanInfo = os_zalloc(pChanStruct->numOfBChan * sizeof(TApChanData));
+            if (pChanInfo == NULL) {
+                wpa_printf(MSG_ERROR, "%s: allocation failed", __func__);
+                return;
+            }
+            index = regulatory_FillChanByCountry(pChanInfo,pChanStruct->Chan24str,country,pChanStruct->numOfBChan,DEFAULT_24_FREQ,MaxTxPower);
+            regulatory_build_mode_B_hw_capability(pRegHandle,pChanInfo,index,0);
+            free(pChanInfo);
+      break;
+
  case DOT11_G_MODE:
            pChanInfo = os_zalloc(pChanStruct->numOfGChan * sizeof(TApChanData));
            if (pChanInfo == NULL) {
@@ -250,8 +261,14 @@ void regulatory_build_hw_capability(RegDomainStruct_t *pRegHandle ,TApChanHwInfo
                return;
            }
            index = regulatory_FillChanByCountry(pChanInfo,pChanStruct->Chan24str,country,pChanStruct->numOfGChan,DEFAULT_24_FREQ,MaxTxPower);
+           if (hostapd_mode == HOSTAPD_MODE_IEEE80211B)
+             regulatory_build_mode_B_hw_capability(pRegHandle,pChanInfo,index,0); 
+           else
            if (current_channel == 14)/*the rates on channel 14 is B rates only*/
+           {
              regulatory_build_mode_B_hw_capability(pRegHandle,pChanInfo,index,0);
+             pRegHandle->modes[0].mode = HOSTAPD_MODE_IEEE80211G;
+           }
            else
              regulatory_build_mode_G_hw_capability(pRegHandle,pChanInfo,index,0);
 
@@ -423,7 +440,7 @@ static void regulatory_build_mode_B_hw_capability(RegDomainStruct_t *pRegHandle,
  int NumOfBRate = sizeof(RateBTbl)/ sizeof(RateBTbl[0]);
  int i;
 
-  pRegHandle->modes[IfaceIdx].mode = HOSTAPD_MODE_IEEE80211G;
+  pRegHandle->modes[IfaceIdx].mode = HOSTAPD_MODE_IEEE80211B;
   pRegHandle->modes[IfaceIdx].num_channels = NumOfChan;
   pRegHandle->modes[IfaceIdx].num_rates = NumOfBRate;
   pRegHandle->modes[IfaceIdx].channels = os_zalloc(sizeof(struct hostapd_channel_data) * (pRegHandle->modes[IfaceIdx].num_channels)) ;
