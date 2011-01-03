@@ -120,9 +120,9 @@ ifdef AP_CONFIG_DRIVER_WILINK
 TI_HOSTAPD_LIB = y
 AP_CFLAGS += -DCONFIG_DRIVER_WILINK
 C_INCLUDES += \
-	hardware/ti/wlan/wl1271_softAP/stad/Export_Inc \
-	hardware/ti/wlan/wl1271_softAP/utils \
-	hardware/ti/wlan/wl1271_softAP/platforms/os/linux/inc
+	hardware/ti/wlan/$(BOARD_SOFTAP_DEVICE)_softAP/stad/Export_Inc \
+	hardware/ti/wlan/$(BOARD_SOFTAP_DEVICE)_softAP/utils \
+	hardware/ti/wlan/$(BOARD_SOFTAP_DEVICE)_softAP/platforms/os/linux/inc
 
 AP_CONFIG_L2_PACKET=linux
 OBJS += hostapd/regulatory.c
