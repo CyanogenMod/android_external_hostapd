@@ -23,6 +23,10 @@
 #include "wpa_ctrl.h"
 #include "common.h"
 
+#ifdef ANDROID
+static const char *local_socket_dir = "/data/misc/wifi/sockets";
+static const char *local_socket_prefix = "wpa_ctrl_";
+#endif /* ANDROID */
 
 #if defined(CONFIG_CTRL_IFACE_UNIX) || defined(CONFIG_CTRL_IFACE_UDP)
 #define CTRL_IFACE_SOCKET
@@ -81,7 +85,12 @@ struct wpa_ctrl * wpa_ctrl_open(const char *ctrl_path)
 	counter++;
 try_again:
 	ret = os_snprintf(ctrl->local.sun_path, sizeof(ctrl->local.sun_path),
+#ifdef ANDROID
+			  "%s/%s%d-%d", local_socket_dir, local_socket_prefix,
+				getpid(), counter);
+#else
 			  "/tmp/wpa_ctrl_%d-%d", getpid(), counter);
+#endif
 	if (ret < 0 || (size_t) ret >= sizeof(ctrl->local.sun_path)) {
 		close(ctrl->s);
 		os_free(ctrl);
