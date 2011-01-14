@@ -575,7 +575,7 @@ OBJS_c = \
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := hostap
-LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libcutils libcrypto libssl
 #LOCAL_FORCE_STATIC_EXCUTABLE := true
 #LOCAL_STATIC_LIBRARIES := libc libcutils
@@ -588,7 +588,7 @@ include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := libhostapdcli
-LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libcutils
 LOCAL_CFLAGS := $(AP_CFLAGS)
 LOCAL_SRC_FILES := $(OBJS_c)
