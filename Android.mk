@@ -1,3 +1,5 @@
+ifneq ($(BOARD_SOFTAP_DEVICE),)
+
 LOCAL_PATH := $(call my-dir)
 
 ifndef AP_CFLAGS
@@ -596,3 +598,5 @@ LOCAL_C_INCLUDES := $(C_INCLUDES)
 include $(BUILD_STATIC_LIBRARY)
 
 ########################
+
+endif # ! BOARD_SOFTAP_DEVICE
